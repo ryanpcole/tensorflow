@@ -13,11 +13,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
+# add arm targets too
+dpkg --add-architecture arm64
 
 yes | add-apt-repository ppa:deadsnakes/ppa
 apt-get update
 apt-get install -y python3.9 python3.9-dev
 apt-get install -y python3-pip 
+apt-get install -y python3-numpy=1.19.5
 ln -sf /usr/bin/python3.9 /usr/local/bin/python3.9
 apt-get install -y python3.9-distutils
 update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.9 1
@@ -26,6 +29,7 @@ pip3 install --upgrade pip
 # python3.9 -m pip install --upgrade pip
 source /install/common.sh
 install_ubuntu_16_python_pip_deps python3.9
+pip3 install numpy==1.19.5
 cp -r /root//.local/lib/python3.9/site-packages/* /usr/lib/python3/dist-packages/.
 ln -sf /root//.local/lib/python3.9/site-packages/numpy/core/include/numpy /usr/include/python3.9/numpy 
 rm -f /usr/bin/python3 && ln -s /usr/bin/python3.9 /usr/bin/python3
