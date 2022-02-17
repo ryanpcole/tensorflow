@@ -20,6 +20,7 @@ limitations under the License.
 #include <limits>
 #include <utility>
 
+#include "absl/algorithm/container.h"
 #include "tensorflow/compiler/xla/debug_options_flags.h"
 #include "tensorflow/compiler/xla/service/memory_space_assignment_tuning_utils.h"
 #include "tensorflow/compiler/xla/service/memory_space_assignment_utils.h"
@@ -2196,6 +2197,7 @@ void AlternateMemoryBestFitHeap::AllocateReservedScopedAllocations() {
       repack_block->colocations = colocations;
     }
   }
+  ClearPendingChunks();
 }
 
 absl::optional<AlternateMemoryBestFitHeap::RequiredMemoryAssignment>
@@ -3059,9 +3061,19 @@ AlternateMemoryBestFitHeap::Result AlternateMemoryBestFitHeap::Prefetch(
           ? options_.while_use_extra_outstanding_prefetch_limit
           : 0;
   Result result = Result::kSuccess;
+  // As a compilation time optimization, store the prefetch start time where we
+  // have first seen out of memory. There is no point of exploring prefetch
+  // start times earlier than this point.
+  absl::optional<int64_t> out_of_mem_start;
   while (!options_.prefetch_interval_picker->Done()) {
     alternate_mem_interval.start = options_.prefetch_interval_picker->Next();
     CHECK_LT(alternate_mem_interval.start, prefetch_end_time);
+    if (out_of_mem_start.has_value() &&
+        alternate_mem_interval.start <= *out_of_mem_start) {
+      VLOG(4) << "This would OOM (cached).";
+      result_mark(Result::kFailOutOfMemory, result);
+      continue;
+    }
     int64_t estimated_prefetch_end_time =
         options_.prefetch_interval_picker->EstimatedPrefetchEndTime(
             shape, alternate_mem_interval.start, prefetch_end_time);
@@ -3076,7 +3088,7 @@ AlternateMemoryBestFitHeap::Result AlternateMemoryBestFitHeap::Prefetch(
     if (!prefetch_async_copy_resource_.HasEnoughResource(
             alternate_mem_interval.start, prefetch_end_time,
             prefetch_resource)) {
-      VLOG(2) << "This would violate asynchronous copy resource = "
+      VLOG(4) << "This would violate asynchronous copy resource = "
               << prefetch_resource;
       result_mark(Result::kFailViolatesAsyncCopyResource, result);
       continue;
@@ -3111,6 +3123,12 @@ AlternateMemoryBestFitHeap::Result AlternateMemoryBestFitHeap::Prefetch(
       request.allocation_value->allocation_sequence()->back()->AddUse(
           request.use->hlo_use);
       return Result::kSuccess;
+    } else {
+      // Mark the out of memory start with the prefetch start time so that we
+      // don't explore prefetch start times earlier than this point.
+      out_of_mem_start =
+          std::max(out_of_mem_start.has_value() ? *out_of_mem_start : -1,
+                   alternate_mem_interval.start);
     }
     result_mark(Result::kFailOutOfMemory, result);
   }
@@ -3131,11 +3149,10 @@ AlternateMemoryBestFitHeap::FindBestChunkCandidate(
   if (!preferred_offset) {
     // First find the earliest use that is the same or later than the end time.
     const auto& use_times = request.all_use_times;
-    auto use_time_it = use_times.begin();
-    for (; *use_time_it < end_time; ++use_time_it) {
-    }
+    auto use_time_it = absl::c_lower_bound(use_times, end_time);
     CHECK(use_time_it != use_times.end());
     int64_t earliest_use = *use_time_it;
+    auto earliest_use_it = use_time_it;
 
     // Then find the latest use that can be allocated contiguously without
     // copies.
@@ -3149,24 +3166,31 @@ AlternateMemoryBestFitHeap::FindBestChunkCandidate(
     CHECK(use_time_it != use_times.end());
     int64_t latest_contiguous_use_time = *use_time_it;
 
-    // Find a chunk that's as long living as possible iterating in reverse over
-    // the use times.
-    for (; use_time_it >= use_times.begin() && *use_time_it >= end_time;
-         --use_time_it) {
-      alternate_mem_interval->end = *use_time_it;
-      ChunkCandidate chunk_candidate =
-          FindChunkCandidate(*alternate_mem_interval);
-      if (chunk_candidate.heap_size <= available_heap_size()) {
-        alternate_mem_interval->end = end_time;
-        VLOG(3) << "FindBestChunkCandidate earliest use = " << earliest_use
-                << ", latest contiguous use = " << latest_contiguous_use_time
-                << ", use with available mem = " << *use_time_it
-                << ", offset = " << chunk_candidate.chunk.offset;
-        return chunk_candidate;
-      }
+    // Find a chunk that's as long living as possible.
+    absl::optional<ChunkCandidate> last_chunk_candidate;
+    int64_t latest_matching_use = std::numeric_limits<int64_t>::min();
+    std::lower_bound(earliest_use_it, std::next(use_time_it), -1,
+                     [&](int64_t use, int64_t) {
+                       alternate_mem_interval->end = use;
+                       ChunkCandidate chunk_candidate =
+                           FindChunkCandidate(*alternate_mem_interval);
+                       if (chunk_candidate.heap_size <= available_heap_size()) {
+                         if (use > latest_matching_use) {
+                           last_chunk_candidate = chunk_candidate;
+                           latest_matching_use = use;
+                         }
+                         return true;
+                       }
+                       return false;
+                     });
+    if (last_chunk_candidate.has_value()) {
+      VLOG(3) << "FindBestChunkCandidate earliest use = " << earliest_use
+              << ", latest contiguous use = " << latest_contiguous_use_time
+              << ", use with available mem = " << latest_matching_use
+              << ", offset = " << last_chunk_candidate->chunk.offset;
     }
     alternate_mem_interval->end = end_time;
-    return absl::nullopt;
+    return last_chunk_candidate;
   }
   // If a preferred offset is given, try to find an allocation at that offset
   // only.

@@ -18,6 +18,7 @@ limitations under the License.
 #include <string>
 #include <utility>
 
+#include "absl/time/time.h"
 #include "tensorflow/core/distributed_runtime/coordination/coordination_service.h"
 #include "tensorflow/core/distributed_runtime/coordination/coordination_service_agent.h"
 #include "tensorflow/core/distributed_runtime/coordination/coordination_service_error_util.h"
@@ -43,7 +44,7 @@ void CoordinationServiceRpcHandler::RegisterWorkerAsync(
     return;
   }
   const CoordinatedTask& task = request->source_task();
-  const uint64 incarnation = request->incarnation();
+  const uint64_t incarnation = request->incarnation();
   service->RegisterWorker(
       task, incarnation, [this, response, done = std::move(done)](Status s) {
         response->set_leader_incarnation(leader_incarnation_id_);
@@ -62,7 +63,7 @@ void CoordinationServiceRpcHandler::HeartbeatAsync(
     return;
   }
   const CoordinatedTask& task = request->source_task();
-  const uint64 incarnation = request->incarnation();
+  const uint64_t incarnation = request->incarnation();
   Status s = service->RecordHeartbeat(task, incarnation);
   if (!s.ok()) {
     done(s);
@@ -171,6 +172,38 @@ void CoordinationServiceRpcHandler::DeleteKeyValueAsync(
     return;
   }
   done(service->DeleteKeyValue(request->key()));
+}
+
+void CoordinationServiceRpcHandler::BarrierAsync(const BarrierRequest* request,
+                                                 BarrierResponse* response,
+                                                 StatusCallback done) {
+  CoordinationServiceInterface* service =
+      CoordinationServiceInterface::GetCoordinationServiceInstance();
+  if (service == nullptr) {
+    done(MakeCoordinationError(
+        errors::Internal("Coordination service is not enabled.")));
+    return;
+  }
+  std::vector<CoordinatedTask> tasks = {request->tasks().begin(),
+                                        request->tasks().end()};
+  service->BarrierAsync(
+      request->barrier_id(),
+      absl::Milliseconds(request->barrier_timeout_in_ms()),
+      request->source_task(), tasks,
+      [done = std::move(done)](const Status& status) { done(status); });
+}
+
+void CoordinationServiceRpcHandler::CancelBarrierAsync(
+    const CancelBarrierRequest* request, CancelBarrierResponse* response,
+    StatusCallback done) {
+  CoordinationServiceInterface* service =
+      CoordinationServiceInterface::GetCoordinationServiceInstance();
+  if (service == nullptr) {
+    done(MakeCoordinationError(
+        errors::Internal("Coordination service is not enabled.")));
+    return;
+  }
+  done(service->CancelBarrier(request->barrier_id(), request->source_task()));
 }
 
 }  // namespace tensorflow

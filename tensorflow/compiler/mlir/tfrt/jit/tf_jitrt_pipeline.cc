@@ -15,6 +15,7 @@ limitations under the License.
 
 #include "tensorflow/compiler/mlir/tfrt/jit/tf_jitrt_pipeline.h"
 
+#include "mlir/Conversion/BufferizationToMemRef/BufferizationToMemRef.h"
 #include "mlir/Conversion/ShapeToStandard/ShapeToStandard.h"
 #include "mlir/Conversion/VectorToSCF/VectorToSCF.h"
 #include "mlir/Dialect/Arithmetic/Transforms/Passes.h"
@@ -24,7 +25,6 @@ limitations under the License.
 #include "mlir/Dialect/Shape/Transforms/Passes.h"
 #include "mlir/Dialect/Tensor/Transforms/Passes.h"
 #include "mlir/Transforms/Passes.h"
-#include "mlir/Conversion/BufferizationToMemRef/BufferizationToMemRef.h"  // from @llvm-project
 #include "tensorflow/compiler/jit/flags.h"
 #include "tensorflow/compiler/mlir/hlo/include/mlir-hlo/Dialect/mhlo/transforms/passes.h"
 #include "tensorflow/compiler/mlir/hlo/include/mlir-hlo/Transforms/passes.h"
@@ -82,6 +82,7 @@ void AddLinalgTransformations(OpPassManager& pm,
       options.vector_size, options.reduction_1d_tile_size,
       reduction_2d_tile_sizes));
 
+  if (options.vectorize) pm.addNestedPass<FuncOp>(CreateTileTransposePass());
   pm.addNestedPass<FuncOp>(CreateTileCWisePass(options.vector_size));
   if (options.peel) {
     pm.addNestedPass<FuncOp>(CreatePeelTiledLoopsPass());
@@ -91,6 +92,7 @@ void AddLinalgTransformations(OpPassManager& pm,
   if (options.fuse_fill) {
     pm.addNestedPass<FuncOp>(CreateFuseFillIntoTiledReductionPass());
   }
+  pm.addNestedPass<FuncOp>(CreateTileFillPass(options.vector_size));
   pm.addNestedPass<FuncOp>(CreateVectorizeTiledOpsPass());
 }
 
@@ -195,10 +197,8 @@ void CreateTfJitRtPipeline(OpPassManager& pm,
   // bufferizing anything.
   pm.addPass(mlir::createCSEPass());
   pm.addPass(mlir::createCanonicalizerPass());
-  // Turn tensor constants into global memrefs.
-  // TODO(kramerb): Expose the patterns and add them to the bufferize passes.
-  pm.addPass(mlir::arith::createConstantBufferizePass(/*alignment=*/64));
-  pm.addPass(mlir::kernel_gen::transforms::CreateFinalBufferizePass());
+  pm.addPass(
+      mlir::kernel_gen::transforms::CreateFinalBufferizePass(/*alignment=*/64));
   pm.addPass(mlir::createCSEPass());
   pm.addPass(mlir::createCanonicalizerPass());
 
@@ -211,12 +211,15 @@ void CreateTfJitRtPipeline(OpPassManager& pm,
   // Remove trivial copy operations.
   pm.addNestedPass<FuncOp>(CreateLinalgTrivialCopyRemovalPass());
 
-  if (options.vectorize) {
+  if (options.vectorize)
     pm.addNestedPass<FuncOp>(mlir::createConvertLinalgTiledLoopsToSCFPass());
-  }
+
   pm.addPass(mlir::createBufferizationToMemRefPass());
   pm.addPass(mlir::createCSEPass());
   pm.addPass(mlir::createCanonicalizerPass());
+
+  if (options.vectorize)
+    pm.addNestedPass<FuncOp>(CreateLowerVectorTransposePass());
 
   mlir::VectorTransferToSCFOptions vec_to_scf_options;
   vec_to_scf_options.unroll = true;

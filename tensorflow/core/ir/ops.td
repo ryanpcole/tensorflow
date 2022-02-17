@@ -65,9 +65,7 @@ def TFGraph_GraphOp : TFGraph_Op<"graph",
     }
   }];
 
-  // Make the assembly pretty!
-  let printer = [{ PrintGraphOp(p, *this); }];
-  let parser = [{ return ParseGraphOp(parser, result); }];
+  let assemblyFormat = "qualified($version) attr-dict-with-keyword $nodes";
   let hasVerifier = 1;
 }
 
@@ -168,8 +166,7 @@ def TFGraph_GraphFuncOp : TFGraph_Op<"func", [
     bool isDeclaration() { return isExternal(); }
   }];
 
-  let parser = [{ return ParseGraphFunc(parser, result); }];
-  let printer = [{ return PrintGraphFunc(*this, p); }];
+  let hasCustomAssemblyFormat = 1;
   let hasVerifier = 1;
   let hasCanonicalizeMethod = 1;
 }
@@ -196,8 +193,7 @@ def TFGraph_ReturnOp : TFGraph_Op<"return",
     OpBuilder<(ins "ValueRange":$operands, "ValueRange":$control_operands)>];
 
   let hasVerifier = 1;
-  let parser = [{ return ParseReturnOp(parser, result); }];
-  let printer = [{ Print(*this, p); }];
+  let hasCustomAssemblyFormat = 1;
 }
 
 
@@ -238,24 +234,6 @@ def TFGraph_GetResultOp : TFGraph_Op<"get_result",
 // auto-generated from the TF op registry, with a mix of hand-written code for
 // op-specific cases.
 // TODO(jeffniu): Also, many of these should be derived attributes (e.g. types).
-
-// A cast operation.
-def TFGraph_CastOp : TFGraph_Op<"Cast", [NoSideEffect]> {
-  let summary = "Cast between two compatible tensor types.";
-
-  let arguments = (ins
-    // Op operands.
-    TFGraph_Tensor:$x,
-    Variadic<ControlType>:$ctls,
-    // Required attributes.
-    TFGraph_TypeOrPlaceholder:$SrcT,
-    TFGraph_TypeOrPlaceholder:$DstT,
-    DefaultValuedAttr<BoolAttr, "false">:$Truncate
-  );
-  let results = (outs AnyType:$y, ControlType:$ctl);
-
-  let hasFolder = 1;
-}
 
 // Base class for TFGraph concrete ops.
 class TFGraph_ConcreteOp<string mnemonic, list<Trait> traits = []> :

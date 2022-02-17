@@ -403,17 +403,21 @@ class HloModule {
 
   void set_session_id(uint64_t session_id) { session_id_ = session_id; }
 
-  void add_profile_info(HloModuleProto::ProfileType profile_type,
-                        double relative_speedup) {
-    HloModuleProto::ProfileInfo profile_info;
-    profile_info.set_profile_type(profile_type);
-    profile_info.set_relative_speedup(relative_speedup);
+  void add_profile_info(const HloModuleProto::ProfileInfo& profile_info) {
     profile_info_list_.push_back(profile_info);
   }
 
   void set_relative_speedup(double relative_speedup) {
     relative_speedup_ = relative_speedup;
   }
+
+  // Sets the **unoptimized** fingerprint for the module. This fingerprint is
+  // prior to any optimizations.
+  void set_autofdo_fingerprint(absl::string_view fingerprint) {
+    autofdo_fingerprint_ = std::string(fingerprint);
+  }
+
+  absl::string_view autofdo_fingerprint() const { return autofdo_fingerprint_; }
 
  private:
   HloComputation* AddComputationInternal(
@@ -481,6 +485,9 @@ class HloModule {
 
   // Relative speedup of best config compared to default config.
   double relative_speedup_;
+
+  // The unoptimized module fingerprint.
+  std::string autofdo_fingerprint_;
 };
 
 }  // namespace xla

@@ -1,8 +1,9 @@
-// RUN: kernel-gen-opt %s --computeop-and-func-bufferize --final-bufferize \
-// RUN:   --split-input-file | FileCheck %s --check-prefixes=CHECK,ALLOC
-// RUN: kernel-gen-opt %s --computeop-and-func-bufferize --final-bufferize \
-// RUN:  --promote-buffers-to-stack --split-input-file |\
-// RUN:  FileCheck %s  --check-prefixes=CHECK,ALLOCA
+// RUN: kernel-gen-opt %s --computeop-and-func-bufferize \
+// RUN:    --final-bufferize=alignment=128 --split-input-file | FileCheck %s \
+// RUN:    --check-prefixes=CHECK,ALLOC
+// RUN: kernel-gen-opt %s --computeop-and-func-bufferize \
+// RUN:    --final-bufferize=alignment=128 --promote-buffers-to-stack \
+// RUN:    --split-input-file | FileCheck %s  --check-prefixes=CHECK,ALLOCA
 
 // CHECK-LABEL: @tensor.extract
 // CHECK-SAME: (%[[ARG:.*]]: memref<?xf32>) -> f32
@@ -20,11 +21,11 @@ func @tensor.extract(%arg : tensor<?xf32>) -> f32 {
 func @tensor.from_elements(%a : f32) -> f32 {
   // CHECK-DAG: %[[B:.*]] = arith.constant 1.2
   // CHECK-DAG: %[[C:.*]] = arith.constant 2.3
-  // ALLOC: %[[MEM:.*]] = memref.alloc() {{.*}} : memref<3xf32>
-  // ALLOCA: %[[MEM:.*]] = memref.alloca() : memref<3xf32>
   // CHECK-DAG: %[[C0:.*]] = arith.constant 0 : index
   // CHECK-DAG: %[[C1:.*]] = arith.constant 1 : index
   // CHECK-DAG: %[[C2:.*]] = arith.constant 2 : index
+  // ALLOC: %[[MEM:.*]] = memref.alloc() {{.*}} : memref<3xf32>
+  // ALLOCA: %[[MEM:.*]] = memref.alloca() : memref<3xf32>
   // CHECK: store %[[A]], %[[MEM]][%[[C0]]] : memref<3xf32>
   // CHECK: store %[[B]], %[[MEM]][%[[C1]]] : memref<3xf32>
   // CHECK: store %[[C]], %[[MEM]][%[[C2]]] : memref<3xf32>
@@ -39,11 +40,11 @@ func @tensor.from_elements(%a : f32) -> f32 {
 // CHECK-LABEL: @tensor.generate
 // CHECK-SAME: (%[[ARG:.*]]: memref<*xf32>) -> index
 func @tensor.generate(%arg : tensor<*xf32>) -> index {
+  // CHECK-DAG: %[[C0:.*]] = arith.constant 0 : index
+  // CHECK-DAG: %[[C1:.*]] = arith.constant 1 : index
   // CHECK: %[[SIZE:.*]] = memref.rank %[[ARG]] : memref<*xf32>
   // ALLOC: %[[MEM:.*]] = memref.alloc(%[[SIZE]]) {{.*}} : memref<?xindex>
   // ALLOCA: %[[MEM:.*]] = memref.alloca(%[[SIZE]]) : memref<?xindex>
-  // CHECK-DAG: %[[C0:.*]] = arith.constant 0 : index
-  // CHECK-DAG: %[[C1:.*]] = arith.constant 1 : index
   // CHECK: scf.parallel (%[[I:.*]]) = (%[[C0]]) to (%[[SIZE]]) step (%[[C1]]) {
   // CHECK:   %[[ELEM:.*]] = memref.dim %[[ARG]], %[[I]] : memref<*xf32>
   // CHECK:   memref.store %[[ELEM]], %[[MEM]][%[[I]]] : memref<?xindex>
@@ -77,39 +78,33 @@ func @assuming(%witness: !shape.witness, %arg : memref<?xf32>)
   return %assuming_result : tensor<?xf32>
 }
 
-// CHECK-LABEL: @const
+// -----
+
+// CHECK: memref.global "private" constant @[[BUFFER:.*]] : memref<3xf32> = dense<[4.000000e+00, 5.000000e+00, 6.000000e+00]>
+// CHECK-SAME: alignment = 128
+// CHECK: @const
 // CHECK-SAME: -> memref<3xf32>
 func @const() -> tensor<3xf32> {
-  // CHECK: %[[MEM:.*]] = memref.alloca() : memref<3xf32>
-  // CHECK-DAG: %[[C4:.*]] = arith.constant 4.000000e+00 : f32
-  // CHECK-DAG: %[[C0:.*]] = arith.constant 0 : index
-  // CHECK: store %[[C4]], %[[MEM]][%[[C0]]] : memref<3xf32>
-  // CHECK-DAG: %[[C5:.*]] = arith.constant 5.000000e+00 : f32
-  // CHECK-DAG: %[[C1:.*]] = arith.constant 1 : index
-  // CHECK: store %[[C5]], %[[MEM]][%[[C1]]] : memref<3xf32>
-  // CHECK-DAG: %[[C6:.*]] = arith.constant 6.000000e+00 : f32
-  // CHECK-DAG: %[[C2:.*]] = arith.constant 2 : index
-  // CHECK: store %[[C6]], %[[MEM]][%[[C2]]] : memref<3xf32>
-  // CHECK-NEXT: return %[[MEM]] : memref<3xf32>
+  // CHECK:  %[[RESULT:.*]] = memref.get_global @[[BUFFER]] : memref<3xf32>
+  // CHECK:  return %[[RESULT]] : memref<3xf32>
   %result = arith.constant dense<[4.0, 5.0, 6.0]> : tensor<3xf32>
   return %result : tensor<3xf32>
 }
 
-// CHECK-LABEL: @const_splat
+// -----
+
+// CHECK: memref.global "private" constant @[[BUFFER:.*]] : memref<3xf32> = dense<4.000000e+00>
+// CHECK-SAME: alignment = 128
+// CHECK: @const_splat
 // CHECK-SAME: -> memref<3xf32>
 func @const_splat() -> tensor<3xf32> {
-  // CHECK: %[[MEM:.*]] = memref.alloca() : memref<3xf32>
-  // CHECK-DAG: %[[C4:.*]] = arith.constant 4.000000e+00 : f32
-  // CHECK-DAG: %[[C0:.*]] = arith.constant 0 : index
-  // CHECK: store %[[C4]], %[[MEM]][%[[C0]]] : memref<3xf32>
-  // CHECK: %[[C1:.*]] = arith.constant 1 : index
-  // CHECK: store %[[C4]], %[[MEM]][%[[C1]]] : memref<3xf32>
-  // CHECK: %[[C2:.*]] = arith.constant 2 : index
-  // CHECK: store %[[C4]], %[[MEM]][%[[C2]]] : memref<3xf32>
-  // CHECK-NEXT: return %[[MEM]] : memref<3xf32>
+  // CHECK:  %[[RESULT:.*]] = memref.get_global @[[BUFFER]] : memref<3xf32>
+  // CHECK:  return %[[RESULT]] : memref<3xf32>
   %result = arith.constant dense<4.0> : tensor<3xf32>
   return %result : tensor<3xf32>
 }
+
+// -----
 
 // CHECK-LABEL: @minimum_broadcast_shapes
 // CHECK-SAME: (%[[LHS:.*]]: memref<?xindex>, %[[RHS:.*]]: memref<?xindex>)
@@ -275,4 +270,19 @@ func @dynamic_broadcast_return(%t : tensor<?x?xf32>, %shape : tensor<2xi32>) -> 
   // CHECK: memref.copy
   %bcast = "mhlo.dynamic_broadcast_in_dim"(%t, %shape) {broadcast_dimensions = dense<[0, 1]> : tensor<2xi64>} : (tensor<?x?xf32>, tensor<2xi32>) -> tensor<?x?xf32>
   return %bcast : tensor<?x?xf32>
+}
+
+
+// CHECK-LABEL: @arith_select
+// CHECK-SAME: %[[C:.*]]: memref<i1>,
+// CHECK-SAME: %[[LHS:.*]]: memref<1xf32>,
+// CHECK-SAME: %[[RHS:.*]]: memref<1xf32>
+func @arith_select(%c : tensor<i1>, %lhs: tensor<1xf32>, %rhs: tensor<1xf32>)
+                  -> tensor<1xf32> {
+  // CHECK: %[[COND:.*]] = memref.load %[[C]][]
+  // CHECK: %[[RESULT:.*]] = arith.select %[[COND]], %[[LHS]], %[[RHS]]
+  // CHECK-SAME:             : memref<1xf32>
+  %cond = tensor.extract %c[] : tensor<i1>
+  %result = arith.select %cond, %lhs, %rhs : tensor<1xf32>
+  return %result : tensor<1xf32>
 }

@@ -53,8 +53,21 @@ def LinalgTrivialCopyRemoval
 }
 
 def TileCWise : Pass<"tf-jitrt-tile-cwise", "mlir::FuncOp"> {
-  let summary = "Tile elementwise ops on tensors";
+  let summary = "Tile cwise linalg.generic on tensors.";
   let constructor = "tensorflow::CreateTileCWisePass()";
+
+  let dependentDialects = ["mlir::linalg::LinalgDialect"];
+
+  let options = [
+    Option<"cwise_tile_size", "cwise-tile-size",
+           "int64_t", /*default=*/"8",
+           "Tile size for the innermost dimension of an elementwise op.">,
+  ];
+}
+
+def TileFill : Pass<"tf-jitrt-tile-fill", "mlir::FuncOp"> {
+  let summary = "Tile linalg.fill on tensors";
+  let constructor = "tensorflow::CreateTileFillPass()";
 
   let dependentDialects = ["mlir::linalg::LinalgDialect"];
 
@@ -192,6 +205,18 @@ def VectorizeTiledOps : Pass<"tf-jitrt-vectorize-tiled-ops", "mlir::FuncOp"> {
   let summary = "Vectorize tiled Linalg ops inside `tiled_loop`";
   let constructor = "tensorflow::CreateVectorizeTiledOpsPass()";
   let dependentDialects = ["mlir::linalg::LinalgDialect"];
+}
+
+def TileTranspose : Pass<"tf-jitrt-tile-transpose", "mlir::FuncOp"> {
+  let summary = "Tile transpose operations";
+  let constructor = "tensorflow::CreateTileTransposePass()";
+  let dependentDialects = ["mlir::linalg::LinalgDialect"];
+}
+
+def LowerTranspose : Pass<"tf-jitrt-lower-vector-transpose", "mlir::FuncOp"> {
+  let summary = "Lower vector transpose operations";
+  let constructor = "tensorflow::CreateLowerVectorTransposePass()";
+  let dependentDialects = ["mlir::vector::VectorDialect, mlir::LLVM::LLVMDialect"];
 }
 
 def RewriteVectorMultiReductionPass :

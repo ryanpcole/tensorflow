@@ -291,6 +291,7 @@ py_library(
         "//tensorflow/python/distribute:merge_call_interim",
         "//tensorflow/python/distribute:multi_process_runner",
         "//tensorflow/python/distribute:multi_worker_test_base",
+        "//tensorflow/python/distribute:sharded_variable",
     ],
 )
 
@@ -3278,12 +3279,15 @@ pywrap_tensorflow_macro(
         "//tensorflow/c/eager:c_api",
         "//tensorflow/c/eager:c_api_experimental",
         "//tensorflow/c/experimental/ops",
+        "//tensorflow/core/config:flag_defs",
+        "//tensorflow/core/config:flags",
         "//tensorflow/c/experimental/gradients",
         "//tensorflow/c/experimental/gradients/tape",
         "//tensorflow/compiler/mlir/tensorflow/c:mlir_c_api_registration",
         "//tensorflow/core/data/service:dispatcher_client",
         "//tensorflow/core/data/service:grpc_util",
         "//tensorflow/core/data/service:server_lib",
+        "//tensorflow/core/function:runtime_client_cc",
         "//tensorflow/core/grappler:grappler_item",
         "//tensorflow/core/grappler:grappler_item_builder",
         "//tensorflow/core/grappler/clusters:cluster",
@@ -3357,6 +3361,8 @@ filegroup(
         "//tensorflow/core/common_runtime:quantize_training",  # quantize_training
         "//tensorflow/core/common_runtime:session_options",  # device_lib, tfe, tf_session
         "//tensorflow/core/common_runtime:session_state",  # tf_session
+        "//tensorflow/core/config:flag_defs",  # flags_api
+        "//tensorflow/core/config:flags",  # flags_api
         "//tensorflow/core/data/service:dispatcher_client",  # dispatcher_client
         "//tensorflow/core/data/service:grpc_util",  # grpc_util
         "//tensorflow/core/data/service:server_lib",  # server_lib
@@ -3368,6 +3374,7 @@ filegroup(
         "//tensorflow/core/common_runtime/eager:eager_executor",  # tfe
         "//tensorflow/core/framework:attr_value_proto_cc_impl",  # tf_text
         "//tensorflow/core/framework:op_def_proto_cc_impl",  # tf_text
+        "//tensorflow/core/function:runtime_client_cc",  # runtime_client_pybind
         "//tensorflow/core/grappler:devices",  # tf_cluster
         "//tensorflow/core/grappler:grappler_item",  # tf_item
         "//tensorflow/core/grappler:grappler_item_builder",  # tf_item

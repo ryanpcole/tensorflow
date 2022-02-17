@@ -23,6 +23,7 @@ limitations under the License.
 
 #include "absl/container/flat_hash_map.h"
 #include "absl/synchronization/notification.h"
+#include "absl/time/time.h"
 #include "tensorflow/core/common_runtime/device_mgr.h"
 #include "tensorflow/core/distributed_runtime/coordination/coordination_client.h"
 #include "tensorflow/core/distributed_runtime/coordination/coordination_service_error_util.h"
@@ -85,13 +86,13 @@ class CoordinationServiceStandaloneImpl : public CoordinationServiceInterface {
       const ServerDef& server_def);
   ~CoordinationServiceStandaloneImpl() override { Stop(); }
 
-  void RegisterWorker(const CoordinatedTask& task, uint64 incarnation,
+  void RegisterWorker(const CoordinatedTask& task, uint64_t incarnation,
                       StatusCallback done) override;
   void WaitForAllTasks(const CoordinatedTask& task,
                        const CoordinationServiceDeviceInfo& devices,
                        StatusCallback done) override;
   Status RecordHeartbeat(const CoordinatedTask& task,
-                         uint64 incarnation) override;
+                         uint64_t incarnation) override;
   Status ReportTaskError(const CoordinatedTask& task, Status error) override;
   Status InsertKeyValue(const std::string& key,
                         const std::string& value) override;
@@ -99,6 +100,12 @@ class CoordinationServiceStandaloneImpl : public CoordinationServiceInterface {
   void GetKeyValueAsync(const std::string& key,
                         StatusOrValueCallback done) override;
   Status DeleteKeyValue(const std::string& key) override;
+  void BarrierAsync(const std::string& barrier_id, absl::Duration timeout,
+                    const CoordinatedTask& task,
+                    const std::vector<CoordinatedTask>& participating_tasks,
+                    StatusCallback done) override;
+  Status CancelBarrier(const std::string& barrier_id,
+                       const CoordinatedTask& task) override;
 
  private:
   const CoordinationServiceDeviceInfo& ListClusterDevices() override
@@ -132,16 +139,16 @@ class CoordinationServiceStandaloneImpl : public CoordinationServiceInterface {
 
     State GetState() { return state_; }
     Status GetStatus() { return status_; }
-    void SetConnected(uint64 task_incarnation);
+    void SetConnected(uint64_t task_incarnation);
     void SetRegisteredCallback(StatusCallback cb);
-    Status RecordHeartbeat(uint64 task_incarnation);
+    Status RecordHeartbeat(uint64_t task_incarnation);
     int64 TimeSinceLastHeartbeatMs();
     void InvokeRegisteredCallback(Status s);
     void SetError(Status status);
 
    private:
     // Incarnation ID for CPU:0 on remote task.
-    uint64 task_incarnation_ = 0;
+    uint64_t task_incarnation_ = 0;
     // WaitForAllTasks callback invoked when all tasks are registered. Must be
     // invoked exactly once.
     StatusCallback registered_callback_;
@@ -180,7 +187,7 @@ class CoordinationServiceStandaloneImpl : public CoordinationServiceInterface {
 };
 
 void CoordinationServiceStandaloneImpl::TaskState::SetConnected(
-    uint64 task_incarnation) {
+    uint64_t task_incarnation) {
   state_ = State::CONNECTED;
   status_ = Status::OK();
   task_incarnation_ = task_incarnation;
@@ -202,7 +209,7 @@ void CoordinationServiceStandaloneImpl::TaskState::SetError(
 }
 
 Status CoordinationServiceStandaloneImpl::TaskState::RecordHeartbeat(
-    uint64 task_incarnation) {
+    uint64_t task_incarnation) {
   if (!status_.ok()) return status_;
   if (task_incarnation != task_incarnation_) {
     return MakeCoordinationError(errors::Aborted(
@@ -328,7 +335,7 @@ void CoordinationServiceStandaloneImpl::Stop() {
 }
 
 void CoordinationServiceStandaloneImpl::RegisterWorker(
-    const CoordinatedTask& task, uint64 incarnation, StatusCallback done) {
+    const CoordinatedTask& task, uint64_t incarnation, StatusCallback done) {
   const std::string& task_name = GetTaskName(task);
 
   Status status;
@@ -415,7 +422,7 @@ Status CoordinationServiceStandaloneImpl::ReportTaskError(
 }
 
 Status CoordinationServiceStandaloneImpl::RecordHeartbeat(
-    const CoordinatedTask& task, uint64 incarnation) {
+    const CoordinatedTask& task, uint64_t incarnation) {
   const std::string& task_name = GetTaskName(task);
   Status s = Status::OK();
   {
@@ -579,6 +586,21 @@ Status CoordinationServiceStandaloneImpl::DeleteKeyValue(
     kv_store_.erase(iter);
   }
   return Status::OK();
+}
+
+void CoordinationServiceStandaloneImpl::BarrierAsync(
+    const std::string& barrier_id, absl::Duration timeout,
+    const CoordinatedTask& task,
+    const std::vector<CoordinatedTask>& participating_tasks,
+    StatusCallback done) {
+  return done(MakeCoordinationError(errors::Unimplemented(
+      "CoordinationServiceImpl::BarrierAsync is not implemented.")));
+}
+
+Status CoordinationServiceStandaloneImpl::CancelBarrier(
+    const std::string& barrier_id, const CoordinatedTask& task) {
+  return MakeCoordinationError(errors::Unimplemented(
+      "CoordinationServiceImpl::CancelBarrier is not implemented."));
 }
 
 }  // namespace
