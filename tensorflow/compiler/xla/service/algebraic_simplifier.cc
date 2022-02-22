@@ -4513,7 +4513,13 @@ Status AlgebraicSimplifierVisitor::HandleDynamicSlice(
           inner_index->shape(), HloOpcode::kClamp,
           MakeScalarLike(inner_index, 0), inner_index,
           MakeScalarLike(inner_index,
-                         operand->operand(0)->shape().dimensions(i - 1))));
+                         operand->operand(0)->shape().dimensions(i - 1) -
+                             dynamic_slice->dynamic_slice_sizes()[i - 1])));
+      if (inner_index->shape().element_type() !=
+          index->shape().element_type()) {
+        inner_index = inner_index->AddInstruction(
+            HloInstruction::CreateConvert(index->shape(), inner_index));
+      }
       HloInstruction* combined_index =
           operand->AddInstruction(HloInstruction::CreateBinary(
               index->shape(), HloOpcode::kAdd, index, inner_index));
@@ -4628,7 +4634,15 @@ Status AlgebraicSimplifierVisitor::HandleDynamicUpdateSlice(
       inner_index = inner_index->AddInstruction(HloInstruction::CreateTernary(
           inner_index->shape(), HloOpcode::kClamp,
           MakeScalarLike(inner_index, 0), inner_index,
-          MakeScalarLike(inner_index, dus_update->shape().dimensions(i - 2))));
+          MakeScalarLike(
+              inner_index,
+              dus_update->shape().dimensions(i - 2) -
+                  dus_update->operand(1)->shape().dimensions(i - 2))));
+      if (inner_index->shape().element_type() !=
+          index->shape().element_type()) {
+        inner_index = inner_index->AddInstruction(
+            HloInstruction::CreateConvert(index->shape(), inner_index));
+      }
       HloInstruction* combined_index =
           dus_update->AddInstruction(HloInstruction::CreateBinary(
               index->shape(), HloOpcode::kAdd, index, inner_index));

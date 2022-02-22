@@ -42,6 +42,12 @@
         and `Model.predict()` to `"auto"`, which defaults to `verbose=1` for
         most cases and defaults to `verbose=2` when used with
         `ParameterServerStrategy` or with interactive logging disabled.
+   *    Argument `jit_compile` in `Model.compile()` now applies
+        to `Model.evaluate()` and `Model.predict()`.
+        Setting `jit_compile=True` in `compile()` compiles the model's
+        training, evaluation, and inference steps to
+        [XLA](https://www.tensorflow.org/xla).
+        Note that `jit_compile=True` may not necessarily work for all models.
 
 *   `tf.lite`:
 
@@ -52,8 +58,13 @@
     *   Add nominal support for unsigned 16-bit integer tensor types. Note that
         very few TFLite kernels support this type natively, so its use in mobile
         ML authoring is generally discouraged.
-    * Experimental support for lowering `list_ops.tensor_list_set_item` with
-      `DynamicUpdateSlice`.
+    *   Experimental support for lowering `list_ops.tensor_list_set_item` with
+        `DynamicUpdateSlice`.
+    *   Enabled a new MLIR-based dynamic range quantization backend by default
+        *   The new backend is used for post-training int8 dynamic range
+            quantization and post-training float16 quantization.
+        *   Set `experimental_new_dynamic_range_quantizer` in
+            tf.lite.TFLiteConverter to False to disable this change
 
 # Bug Fixes and Other Changes
 
@@ -67,6 +78,12 @@
         Now the correct feature key will be used. This aligns the behavior of
         `tf.data.experimental.parse_example_dataset` to match the behavior of
         `tf.io.parse_example`.
+
+*    `tf.keras`:
+
+    *   Fixed bug in optimizers that prevented them from properly checkpointing
+        slot variables when they are `ShardedVariable`s (used for training with
+        `tf.distribute.experimental.ParameterServerStrategy`).
 
 *   <SIMILAR TO ABOVE SECTION, BUT FOR OTHER IMPORTANT CHANGES / BUG FIXES>
 *   <IF A CHANGE CLOSES A GITHUB ISSUE, IT SHOULD BE DOCUMENTED HERE>
