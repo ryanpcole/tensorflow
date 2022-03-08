@@ -1860,6 +1860,7 @@ absl::flat_hash_map<string, std::vector<string>>* GetAllowlistTable() {
             "LeakyReluGrad", "Elu", "EluGrad", "Selu", "SeluGrad", "Select",
             "SelectV2", "Transpose", "ConjugateTranspose",
             "_UnaryOpsComposition", "CollectiveReduceV2",
+            "CollectiveAssignGroupV2",
             // The following 5 operations are converted to identity
             "PlaceholderWithDefault", "PreventGradient", "StopGradient",
             "Snapshot", "_EagerConst"}},
@@ -2010,6 +2011,7 @@ absl::flat_hash_set<string> GetKnownXLAAllowlistOp() {
       "MaxPoolV2",
       "Multinomial",
       "NextAfter",
+      "NonMaxSuppressionV3",
       "NonMaxSuppressionV4",
       "ParallelDynamicStitch",
       "ParameterizedTruncatedNormal",

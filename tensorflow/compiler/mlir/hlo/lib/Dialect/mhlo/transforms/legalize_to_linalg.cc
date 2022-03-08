@@ -31,11 +31,13 @@ limitations under the License.
 #include "mlir-hlo/Dialect/mhlo/transforms/type_conversion.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
+#include "mlir/Dialect/Complex/IR/Complex.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Math/IR/Math.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/SCF.h"
 #include "mlir/Dialect/Shape/IR/Shape.h"
+#include "mlir/Dialect/SparseTensor/IR/SparseTensor.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Dialect/Tensor/Utils/Utils.h"
 #include "mlir/IR/AffineExpr.h"
@@ -107,24 +109,39 @@ Value GetInitTensor(OpBuilder& b, Location loc, ShapedType type,
                                         type.getElementType());
 }
 
+Value GetInitSparseTensor(OpBuilder& b, Location loc, ShapedType type,
+                          ArrayRef<Value> sizes) {
+  return b.create<sparse_tensor::InitOp>(loc, type, sizes);
+}
+
 Value GetInitTensorFor(OpBuilder& b, Location loc, ShapedType result_type,
                        Operation* op, ValueRange operands) {
-  SmallVector<Value> dyn_sizes;
-  if (result_type.hasRank() && !result_type.hasStaticShape()) {
+  bool is_sparse =
+      sparse_tensor::getSparseTensorEncoding(result_type) != nullptr;
+  // Collect the sizes for a ranked tensor to be passed as parameter to a
+  // new tensor initialization operation. This operation only needs the
+  // dynamic size in the dense case, but all sizes when the tensor is sparse.
+  SmallVector<Value> sizes;
+  if (result_type.hasRank() && (is_sparse || !result_type.hasStaticShape())) {
     // Ask the op for its output shape.
     auto shape_source = cast<InferShapedTypeOpInterface>(op);
     SmallVector<Value, 1> reified_shapes;
     (void)shape_source.reifyReturnTypeShapes(b, operands, reified_shapes);
     assert(reified_shapes.size() == 1 && "Expected one reified result");
-
+    // Construct sizes for the required dimensions.
     for (auto& en : llvm::enumerate(result_type.getShape())) {
-      if (en.value() != ShapedType::kDynamicSize) continue;
-      dyn_sizes.push_back(b.create<tensor::ExtractOp>(
+      if (en.value() != ShapedType::kDynamicSize) {
+        if (is_sparse)
+          sizes.push_back(b.create<arith::ConstantIndexOp>(loc, en.value()));
+        continue;
+      }
+      sizes.push_back(b.create<tensor::ExtractOp>(
           loc, reified_shapes[0],
           ValueRange{b.create<arith::ConstantIndexOp>(loc, en.index())}));
     }
   }
-  return GetInitTensor(b, loc, result_type, dyn_sizes);
+  return is_sparse ? GetInitSparseTensor(b, loc, result_type, sizes)
+                   : GetInitTensor(b, loc, result_type, sizes);
 }
 
 SmallVector<int64_t, 4> Extract1DVector(DenseIntElementsAttr elements) {
@@ -1021,14 +1038,17 @@ class ReshapeOpConverter : public OpConversionPattern<mhlo::ReshapeOp> {
 
     result_type = typeConverter->convertType(result_type).cast<ShapedType>();
 
-    if (result_type.getNumElements() == 1 && !operand_type.hasStaticShape()) {
+    // Special case where the result is a scalar.
+    if (result_type.getRank() == 0 && !operand_type.hasStaticShape()) {
       // This means all dimensions of the operand need to be 1. We add a cast to
       // cast the dynamic dimensions to 1.
       auto static_type = RankedTensorType::get(
           llvm::SmallVector<int64_t>(operand_type.getRank(), 1), elem_type);
       operand = rewriter.create<tensor::CastOp>(reshape_op.getLoc(),
                                                 static_type, operand);
-      operand_type = static_type;
+      rewriter.replaceOpWithNewOp<tensor::CollapseShapeOp>(
+          reshape_op, result_type, operand, ArrayRef<ReassociationIndices>{});
+      return success();
     }
 
     // Compute the reassociation maps for the linalg operation. This will
@@ -1037,6 +1057,25 @@ class ReshapeOpConverter : public OpConversionPattern<mhlo::ReshapeOp> {
     if (Optional<SmallVector<ReassociationIndices>> reassociation_map =
             getReassociationIndicesForReshape(operand_type, result_type)) {
       if (result_type.getRank() < operand_type.getRank()) {
+        // We have found a working reassociation map. If the operand is dynamic,
+        // we first need to cast all unknown dimensions in the input that get
+        // collapsed to a static-sized dimension in the output, to 1.
+        SmallVector<int64_t> shape(operand_type.getShape().begin(),
+                                   operand_type.getShape().end());
+        for (const auto& map : llvm::enumerate(*reassociation_map)) {
+          // If the result dim is dynamic, we do not mind dynamic entries in the
+          // source.
+          if (result_type.isDynamicDim(map.index())) continue;
+          for (auto target_dim : map.value()) {
+            if (shape[target_dim] == ShapedType::kDynamicSize)
+              shape[target_dim] = 1;
+          }
+        }
+        auto new_operand_type = RankedTensorType::get(shape, elem_type);
+        if (new_operand_type != operand_type) {
+          operand = rewriter.create<tensor::CastOp>(reshape_op.getLoc(),
+                                                    new_operand_type, operand);
+        }
         rewriter.replaceOpWithNewOp<tensor::CollapseShapeOp>(
             reshape_op, result_type, operand, *reassociation_map);
       } else {
@@ -1772,15 +1811,10 @@ struct PadOpConversion : public OpConversionPattern<mhlo::PadOp> {
     Value padding_val =
         rewriter.createOrFold<tensor::ExtractOp>(loc, adaptor.padding_value());
 
-    const auto& edge_padding_low = op.edge_padding_low();
-    const auto& edge_padding_high = op.edge_padding_high();
-    SmallVector<OpFoldResult, 4> low, high;
-    for (auto it : llvm::zip(edge_padding_low, edge_padding_high)) {
-      low.push_back(rewriter.createOrFold<arith::ConstantIndexOp>(
-          loc, std::get<0>(it).getZExtValue()));
-      high.push_back(rewriter.createOrFold<arith::ConstantIndexOp>(
-          loc, std::get<1>(it).getZExtValue()));
-    }
+    SmallVector<OpFoldResult, 4> low(
+        op.edge_padding_low().getValues<IntegerAttr>());
+    SmallVector<OpFoldResult, 4> high(
+        op.edge_padding_high().getValues<IntegerAttr>());
     Type result_type = op.getResult().getType();
     auto pad_tensor_op = tensor::createPadScalarOp(
         result_type, adaptor.operand(), padding_val, low, high,
@@ -2822,7 +2856,8 @@ struct HloLegalizeToLinalgPass
     ConversionTarget target(ctx);
     target.addLegalDialect<arith::ArithmeticDialect, complex::ComplexDialect,
                            linalg::LinalgDialect, math::MathDialect,
-                           tensor::TensorDialect, scf::SCFDialect,
+                           tensor::TensorDialect,
+                           sparse_tensor::SparseTensorDialect, scf::SCFDialect,
                            shape::ShapeDialect>();
 
     target.addLegalOp<UnrealizedConversionCastOp>();

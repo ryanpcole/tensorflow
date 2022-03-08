@@ -546,6 +546,7 @@ py_library(
         "//tensorflow/python/data/ops:multi_device_iterator_ops",
         "//tensorflow/python/data/ops:optional_ops",
         "//tensorflow/python/eager:context",
+        "//tensorflow/python/eager:monitoring",
         "//tensorflow/python/ops/ragged:ragged_tensor",
     ],
 )
@@ -2260,6 +2261,7 @@ distribute_py_test(
     python_version = "PY3",
     tags = [
         "multi_and_single_gpu",
+        "notpu",
         "notsan",  # Tsan failure doesn't seem to be caused by TF.
     ],
     deps = [

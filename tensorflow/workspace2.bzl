@@ -135,9 +135,9 @@ def _tf_repositories():
     # LINT.IfChange
     tf_http_archive(
         name = "XNNPACK",
-        sha256 = "899d307ba5e356607e559f7e0e97257dafb134bae443bb4d98ea71989dbbadc9",
-        strip_prefix = "XNNPACK-7ff11f770a1e803ab9d5c70c82457d496a93965a",
-        urls = tf_mirror_urls("https://github.com/google/XNNPACK/archive/7ff11f770a1e803ab9d5c70c82457d496a93965a.zip"),
+        sha256 = "91d24cacb4c973c37e5a3075e71a9f6a4978dd671ccae96c7269b67cb9c7de7e",
+        strip_prefix = "XNNPACK-b19c232e2ae3ce196bdfe53bf066e27635d331a2",
+        urls = tf_mirror_urls("https://github.com/google/XNNPACK/archive/b19c232e2ae3ce196bdfe53bf066e27635d331a2.zip"),
     )
     # LINT.ThenChange(//tensorflow/lite/tools/cmake/modules/xnnpack.cmake)
 
@@ -299,10 +299,10 @@ def _tf_repositories():
     tf_http_archive(
         name = "org_sqlite",
         build_file = "//third_party:sqlite.BUILD",
-        sha256 = "999826fe4c871f18919fdb8ed7ec9dd8217180854dd1fe21eea96aed36186729",
-        strip_prefix = "sqlite-amalgamation-3360000",
+        sha256 = "b65d2b72ce1296bb4314bbca1bede332a0f789b08a17e3e6e2e7ce6e870cde92",
+        strip_prefix = "sqlite-amalgamation-3370100",
         system_build_file = "//third_party/systemlibs:sqlite.BUILD",
-        urls = tf_mirror_urls("https://www.sqlite.org/2021/sqlite-amalgamation-3360000.zip"),
+        urls = tf_mirror_urls("https://www.sqlite.org/2021/sqlite-amalgamation-3370100.zip"),
     )
 
     tf_http_archive(

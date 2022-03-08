@@ -78,6 +78,12 @@ limitations under the License.
 // would work!
 #define TFTRT_CHECK_EQ_TYPE(val1, val2) CHECK_EQ((int)val1, (int)val2)
 
+#define TFTRT_CHECK_INPUT_SIZE(size, exp_size, node_def)                 \
+  if ((size) != (exp_size)) {                                            \
+    TFTRT_ERROR(errors::InvalidArgument, node_def.op(), " got ", (size), \
+                " inputs but expected ", (exp_size));                    \
+  }
+
 namespace tensorflow {
 namespace tensorrt {
 namespace convert {
@@ -1701,11 +1707,8 @@ Status CheckInputsWeights(
     const std::vector<std::pair<string, TrtInputArg>>& expected_inputs) {
   const auto& inputs = params.inputs;
   const auto& node_def = params.node_def;
-  if (inputs.size() != expected_inputs.size()) {
-    return errors::InvalidArgument(node_def.op(), " got ", inputs.size(),
-                                   " inputs but expected ",
-                                   expected_inputs.size());
-  }
+  TFTRT_CHECK_INPUT_SIZE(inputs.size(), expected_inputs.size(), node_def);
+
   for (int i = 0; i < inputs.size(); i++) {
     if (expected_inputs[i].second == TrtInputArg::kWeight &&
         inputs.at(i).is_tensor()) {
@@ -3416,11 +3419,7 @@ Status ConvertRelu6(OpConverterParams* params) {
 Status ConvertBiasAdd(OpConverterParams* params) {
   const auto& inputs = params->inputs;
   const auto& node_def = params->node_def;
-
-  if (inputs.size() != 2) {
-    return errors::InvalidArgument(
-        "BiasAdd expects exactly 2 inputs, but received ", inputs.size());
-  }
+  TFTRT_CHECK_INPUT_SIZE(inputs.size(), 2, node_def);
 
   if (inputs[0].is_weights() && inputs[1].is_weights()) {
     return errors::InvalidArgument(
@@ -3649,10 +3648,8 @@ Status ConvertIdentity(OpConverterParams* params) {
 Status ConvertBinary(OpConverterParams* params) {
   const auto& inputs = params->inputs;
   const auto& node_def = params->node_def;
-  if (inputs.size() != 2) {
-    return errors::InvalidArgument(node_def.op(), " got ", inputs.size(),
-                                   " inputs but expected 2");
-  }
+  TFTRT_CHECK_INPUT_SIZE(inputs.size(), 2, node_def);
+
   std::set<DataType> allowed_types{DataType::DT_FLOAT, DataType::DT_HALF,
                                    DataType::DT_INT32};
   TF_RETURN_IF_ERROR(AllowDataTypes(*params, allowed_types));
@@ -3728,58 +3725,6 @@ Status ConvertRsqrt(OpConverterParams* params) {
   TFTRT_RETURN_ERROR_IF_NULLPTR(recip_layer, node_def.name());
   params->converter->SetLayerName(recip_layer, node_def, "recip");
   params->outputs->push_back(TRT_TensorOrWeights(recip_layer->getOutput(0)));
-  return Status::OK();
-}
-
-const std::unordered_map<string, nvinfer1::UnaryOperation>*
-UnaryOperationMap() {
-  static auto* const m =
-      new std::unordered_map<string, nvinfer1::UnaryOperation>({
-          {"Neg", nvinfer1::UnaryOperation::kNEG},
-          {"Exp", nvinfer1::UnaryOperation::kEXP},
-          {"Log", nvinfer1::UnaryOperation::kLOG},
-          {"Sqrt", nvinfer1::UnaryOperation::kSQRT},
-          {"Abs", nvinfer1::UnaryOperation::kABS},
-          {"Reciprocal", nvinfer1::UnaryOperation::kRECIP},
-          {"Sin", nvinfer1::UnaryOperation::kSIN},
-          {"Cos", nvinfer1::UnaryOperation::kCOS},
-          {"Tan", nvinfer1::UnaryOperation::kTAN},
-          {"Sinh", nvinfer1::UnaryOperation::kSINH},
-          {"Cosh", nvinfer1::UnaryOperation::kCOSH},
-          {"Asin", nvinfer1::UnaryOperation::kASIN},
-          {"Acos", nvinfer1::UnaryOperation::kACOS},
-          {"Atan", nvinfer1::UnaryOperation::kATAN},
-          {"Asinh", nvinfer1::UnaryOperation::kASINH},
-          {"Acosh", nvinfer1::UnaryOperation::kACOSH},
-          {"Atanh", nvinfer1::UnaryOperation::kATANH},
-          {"Ceil", nvinfer1::UnaryOperation::kCEIL},
-          {"Floor", nvinfer1::UnaryOperation::kFLOOR},
-          {"Erf", nvinfer1::UnaryOperation::kERF},
-      });
-  return m;
-}
-
-Status ConvertUnary(OpConverterParams* params) {
-  const auto& inputs = params->inputs;
-  const auto& node_def = params->node_def;
-  TF_RETURN_IF_ERROR(CheckInputsWeights(*params, {{"x", false}}));
-  TF_RETURN_IF_ERROR(
-      AllowDataTypes(*params, {DataType::DT_FLOAT, DataType::DT_HALF}));
-  auto op_pair = UnaryOperationMap()->find(node_def.op());
-  if (op_pair == UnaryOperationMap()->end()) {
-    return errors::Unimplemented("Unary op: ", node_def.op(), " not supported");
-  }
-  if (params->validation_only) return Status::OK();
-
-  // Start conversion.
-  ITensorProxyPtr tensor = inputs.at(0).tensor();
-  nvinfer1::IUnaryLayer* layer = params->converter->network()->addUnary(
-      *tensor->trt_tensor(), op_pair->second);
-  TFTRT_RETURN_ERROR_IF_NULLPTR(layer, node_def.name());
-  params->converter->SetLayerName(layer, node_def);
-  ITensorProxyPtr output_tensor = layer->getOutput(0);
-
-  params->outputs->push_back(TRT_TensorOrWeights(output_tensor));
   return Status::OK();
 }
 
@@ -4894,10 +4839,8 @@ Status ConvertMatMulHelper(OpConverterParams* params,
 Status ConvertMatMul(OpConverterParams* params) {
   const auto& inputs = params->inputs;
   const auto& node_def = params->node_def;
-  if (inputs.size() != 2) {
-    return errors::InvalidArgument(node_def.op(), " got ", inputs.size(),
-                                   " inputs but expected 2");
-  }
+  TFTRT_CHECK_INPUT_SIZE(inputs.size(), 2, node_def);
+
   TF_RETURN_IF_ERROR(
       AllowDataTypes(*params, {DataType::DT_FLOAT, DataType::DT_HALF}));
 
@@ -4913,10 +4856,8 @@ Status ConvertMatMul(OpConverterParams* params) {
 Status ConvertBatchMatMul(OpConverterParams* params) {
   const auto& inputs = params->inputs;
   const auto& node_def = params->node_def;
-  if (inputs.size() != 2) {
-    return errors::InvalidArgument(node_def.op(), " got ", inputs.size(),
-                                   " inputs but expected 2");
-  }
+  TFTRT_CHECK_INPUT_SIZE(inputs.size(), 2, node_def);
+
   TF_RETURN_IF_ERROR(CheckInputsWeights(
       *params, {{"x", TrtInputArg::kBoth}, {"y", TrtInputArg::kBoth}}));
   // TODO(tfeher): Consider adding INT8 type because FC layer can support it.
@@ -5945,10 +5886,9 @@ Status ConvertAddN(OpConverterParams* params) {
   if (num_inputs < 2) {
     return errors::InvalidArgument("AddN requires at least two inputs");
   }
-  if (inputs.size() != num_inputs) {
-    return errors::InvalidArgument("Got ", inputs.size(),
-                                   " inputs but expected ", num_inputs);
-  }
+
+  TFTRT_CHECK_INPUT_SIZE(inputs.size(), num_inputs, node_def);
+
   for (const auto& input : inputs) {
     if (!input.is_tensor() && input.weights().Shape().dim(0) != 1) {
       return errors::InvalidArgument(
@@ -6032,13 +5972,6 @@ REGISTER_DEFAULT_TRT_OP_CONVERTER(ConvertStridedSlice, "StridedSlice");
 REGISTER_DEFAULT_TRT_OP_CONVERTER(ConvertTopK, "TopKV2");
 REGISTER_DEFAULT_TRT_OP_CONVERTER(ConvertTranspose, "Transpose");
 REGISTER_DEFAULT_TRT_OP_CONVERTER(ConvertUnpack, "Unpack");
-template <typename T>
-absl::InlinedVector<std::string, 10> GetOperationNames(const T& set) {
-  absl::InlinedVector<std::string, 10> result;
-  absl::c_transform(set, std::back_inserter(result),
-                    [](const auto x) { return x.first; });
-  return result;
-}
 REGISTER_DEFAULT_TRT_OP_CONVERTER(ConvertBinary,
                                   GetOperationNames(kBinaryOperations));
 REGISTER_DEFAULT_TRT_OP_CONVERTER(ConvertActivation,
@@ -6047,8 +5980,6 @@ REGISTER_DEFAULT_TRT_OP_CONVERTER(ConvertPool, {"MaxPool", "AvgPool"});
 REGISTER_DEFAULT_TRT_OP_CONVERTER(ConvertFusedBatchNorm,
                                   {"FusedBatchNorm", "FusedBatchNormV2",
                                    "FusedBatchNormV3"});
-REGISTER_DEFAULT_TRT_OP_CONVERTER(ConvertUnary,
-                                  GetOperationNames(*UnaryOperationMap()));
 REGISTER_DEFAULT_TRT_OP_CONVERTER(ConvertReduce,
                                   {"Sum", "Prod", "Max", "Min", "Mean"});
 REGISTER_DEFAULT_TRT_OP_CONVERTER(ConvertArgMinMax, {"ArgMin", "ArgMax"});

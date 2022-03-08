@@ -1746,6 +1746,10 @@ void HloInstruction::SetupDerivedInstruction(
   derived_instruction->set_frontend_attributes(frontend_attributes_);
 }
 
+bool HloInstruction::IsRoot() const {
+  return parent_ != nullptr && this == parent_->root_instruction();
+}
+
 bool HloInstruction::HasSideEffectNoRecurse() const {
   switch (opcode_) {
     case HloOpcode::kSend:
